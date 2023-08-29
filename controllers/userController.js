@@ -74,7 +74,7 @@ class UserController {
               { userId: user._id },
               process.env.JWT_SECRET,
               {
-                expiresIn: 10 * 60,
+                expiresIn: 10 * 60 * 60,
               }
             );
             res.status(200).send({ status: "success", token });

@@ -7,14 +7,15 @@ router.use("/addPost", auth);
 router.use("/getUserPosts", auth);
 router.use("/postReact", auth);
 router.use("/postComment", auth);
-router.use("/getComments", auth);
+router.use("/getComments/:id", auth);
+router.use("/deletePost/:id", auth);
 
 router.get("/allPosts", PostController.allPosts);
 //private
-router.post("/addPost", PostController.addPost);
 router.get("/getUserPosts", PostController.getUserPosts);
+router.post("/addPost", PostController.addPost);
+router.delete("/deletePost/:id", PostController.deletePostById);
 router.put("/postReact", PostController.postReact);
-
 router.post("/postComment", PostController.postComment);
 router.get("/getComments/:id", PostController.getCommentsByPostId);
 

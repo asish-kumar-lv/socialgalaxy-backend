@@ -176,6 +176,20 @@ class PostController {
 
     res.send({ status: "success" });
   };
+
+  static deletePostById = async (req, res) => {
+    const { id } = req.params;
+    if (id) {
+      const data = await PostModel.deleteOne({
+        _id: new mongoose.Types.ObjectId(id),
+      });
+      if (data.acknowledged) {
+        res.status(200).send({ status: "success" });
+      } else {
+        res.status(400).send({ status: "failed" });
+      }
+    }
+  };
 }
 
 export default PostController;
