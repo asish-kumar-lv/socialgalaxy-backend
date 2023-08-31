@@ -2,6 +2,7 @@ import UserModel from "../models/User.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import PostModel from "../models/Post.js";
+import mongoose from "mongoose";
 class UserController {
   getUserByToken = async (req) => {
     const token = req.header("Authorization");
@@ -103,17 +104,243 @@ class UserController {
     res.send({ status: "success", user: req.user });
   };
 
-  static addPost = async (req, res) => {
-    const { content } = req.body;
+  static suggestedFriends = async (req, res) => {
+    const user = req.user;
+    const loginUser = await UserModel.findById(user?.id);
+
     try {
-      const data = new PostModel({
-        content,
-        postBy: req.user._id,
+      let data = await UserModel.aggregate([
+        {
+          $match: {
+            _id: {
+              $ne: user?._id,
+            },
+          },
+        },
+        {
+          $addFields: {
+            friends: {
+              $cond: {
+                if: {
+                  $ne: [
+                    {
+                      $type: "$friends",
+                    },
+                    "array",
+                  ],
+                },
+                then: [],
+                else: "$friends",
+              },
+            },
+          },
+        },
+      ]);
+
+      data = data.filter((item) => {
+        const userIdinFriendList = item.friends.find((item) => {
+          console.log(item.friendId, user?._id);
+          return item.friendId.toString() == user?._id.toString();
+        });
+        console.log({ userIdinFriendList });
+        if (userIdinFriendList) {
+          if (userIdinFriendList?.requested) item.isRequested = true;
+          if (userIdinFriendList?.confirmed) item.isConfirmed = true;
+        }
+        return !item.isConfirmed;
+      });
+
+      res.status(200).send({
+        status: "success",
+        data,
+      });
+    } catch (e) {
+      console.log(e);
+      res.status(400).send({
+        status: "failed",
+        message: "unable to fetch users",
+      });
+    }
+  };
+
+  static getUserFriends = async (req, res) => {
+    const user = req.user;
+
+    try {
+      const data = await UserModel.aggregate([
+        {
+          $match: { _id: user?._id },
+        },
+        {
+          $unwind: "$friends",
+        },
+        {
+          $lookup: {
+            from: "users",
+            as: "friendDetail",
+            foreignField: "_id",
+            localField: "friends.friendId",
+          },
+        },
+        {
+          $unwind: "$friendDetail",
+        },
+        {
+          $group: {
+            _id: "$_id",
+            friend: {
+              $push: {
+                friendId: "$friends.friendId",
+                isRequested: "$friends.requested",
+                isConfirmed: "$friends.confirmed",
+                email: "$friendDetail.email",
+                name: "$friendDetail.name",
+                occupation: "$friendDetail.occupation",
+              },
+            },
+          },
+        },
+        {
+          $unwind: "$friend",
+        },
+      ]);
+
+      res.status(200).send({
+        status: "success",
+        data,
+      });
+    } catch (e) {
+      console.log(e);
+      res.status(400).send({
+        status: "failed",
+        message: "unable to fetch users",
+      });
+    }
+  };
+
+  static requestFriend = async (req, res) => {
+    const user = req.user;
+    const { id } = req.params;
+    const requestedUser = await UserModel.findById(user?._id);
+    if (!requestedUser)
+      res.status(400).send({
+        status: "failed",
+        message: "unable to find requested user",
+      });
+    try {
+      const data = await UserModel.updateOne(
+        {
+          _id: new mongoose.Types.ObjectId(id),
+        },
+        {
+          $push: {
+            friends: {
+              friendId: user?._id,
+            },
+          },
+        }
+      );
+      res.status(200).send({
+        status: "success",
+        data,
       });
     } catch {
       res.status(400).send({
         status: "failed",
-        message: "unable to add post",
+        message: "unable to request user",
+      });
+    }
+  };
+  static requestFriendRollback = async (req, res) => {
+    const user = req.user;
+    const { id } = req.params;
+    const requestedUser = await UserModel.findById(user?._id);
+    if (!requestedUser)
+      res.status(400).send({
+        status: "failed",
+        message: "unable to find requested user",
+      });
+    try {
+      const data = await UserModel.updateOne(
+        {
+          _id: new mongoose.Types.ObjectId(id),
+        },
+        {
+          $pull: {
+            friends: {
+              friendId: requestedUser._id,
+            },
+          },
+        }
+      );
+      const data2 = await UserModel.updateOne(
+        {
+          _id: requestedUser._id,
+        },
+        {
+          $pull: {
+            friends: {
+              friendId: new mongoose.Types.ObjectId(id),
+            },
+          },
+        }
+      );
+      res.status(200).send({
+        status: "success",
+        data,
+      });
+    } catch {
+      res.status(400).send({
+        status: "failed",
+        message: "unable to request user",
+      });
+    }
+  };
+
+  static acceptRequest = async (req, res) => {
+    const user = req.user;
+    const { id } = req.params;
+
+    try {
+      //update current user friend list
+      const data = await UserModel.updateOne(
+        {
+          _id: user?._id,
+          "friends.friendId": new mongoose.Types.ObjectId(id),
+        },
+        {
+          $set: {
+            "friends.$.confirmed": true,
+            "friends.$.requested": false,
+          },
+        }
+      );
+      // update sender user friend list
+      const sData = await UserModel.updateOne(
+        {
+          _id: new mongoose.Types.ObjectId(id),
+          "friends.friendId": { $ne: new mongoose.Types.ObjectId(user?._id) },
+        },
+        {
+          $push: {
+            friends: {
+              friendId: user?._id,
+              confirmed: true,
+              requested: false,
+            },
+          },
+        }
+      );
+      console.log(sData);
+      res.status(200).send({
+        status: "success",
+        data,
+      });
+    } catch (e) {
+      console.log(e);
+      res.status(400).send({
+        status: "failed",
+        message: "unable to request user",
       });
     }
   };

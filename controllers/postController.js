@@ -71,11 +71,30 @@ class PostController {
       {
         $lookup: {
           from: "users",
-          localField: "user",
-          foreignField: "_id",
+          let: { userId: "$user" },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ["$_id", "$$userId"] },
+              },
+            },
+            {
+              $project: {
+                password: 0,
+              },
+            },
+          ],
           as: "user",
         },
       },
+      // {
+      //   $lookup: {
+      //     from: "users",
+      //     localField: "user",
+      //     foreignField: "_id",
+      //     as: "user",
+      //   },
+      // },
       { $unwind: "$user" },
       {
         $project: {
@@ -89,20 +108,6 @@ class PostController {
           },
         },
       },
-
-      //   {
-      //     $addFields: {
-      //       like: {
-      //         $cond: {
-      //           if: {
-      //             $in: [req?.user?._id, "$userLiked"],
-      //           },
-      //           then: true,
-      //           else: false,
-      //         },
-      //       },
-      //     },
-      //   },
     ]).sort({ createdAt: -1 });
 
     res.send({ status: "success", data });
