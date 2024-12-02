@@ -5,9 +5,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
 
-import connectDb from "./config/connectDb.js";
-import userRoutes from "./routes/userRoutes.js";
-import postRoutes from "./routes/postRoutes.js";
+import connectDb from "../config/connectDb.js";
+import userRoutes from "../routes/userRoutes.js";
+import postRoutes from "../routes/postRoutes.js";
 
 config();
 const port = process.env.PORT;
@@ -20,7 +20,7 @@ const app = express();
 connectDb(DB_URL);
 app.use(express.json());
 app.use(cors());
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use("/uploads", express.static(path.join(__dirname, "../", "uploads")));
 
 app.use("/api/user", userRoutes);
 app.use("/api/post", postRoutes);

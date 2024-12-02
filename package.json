@@ -2,11 +2,11 @@
   "name": "authnode",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "api/index.js",
   "type": "module",
   "scripts": {
-    "start": "node index",
-    "dev": "nodemon index"
+    "start": "node api/index",
+    "dev": "nodemon api/index"
   },
   "author": "",
   "license": "ISC",
