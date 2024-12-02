@@ -10,7 +10,7 @@ const auth = async (req, res, next) => {
     } else {
       const tokenVal = token.split(" ")[1];
       const { userId } = jwt.verify(tokenVal, process.env.JWT_SECRET);
-      req.user = await UserModel.findById(userId).select("-password -__v");
+      req.user = await UserModel.findById(userId);
       next();
     }
   } catch (e) {

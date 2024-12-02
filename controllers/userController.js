@@ -22,8 +22,10 @@ class UserController {
       return null;
     }
   };
+
   static userRegistration = async (req, res) => {
     const { name, email, password, password_confirm, occupation } = req.body;
+
     const user = await UserModel.findOne({ email });
     if (!user) {
       if (email && name && password && password_confirm) {
@@ -36,6 +38,7 @@ class UserController {
               name,
               password: hashedPassword,
               occupation,
+              profileImage: req.file ? `/uploads/${req.file.filename}` : null,
             });
             await data.save();
             res.send({
@@ -59,6 +62,78 @@ class UserController {
       res
         .status(400)
         .send({ status: "failed", message: "user already exists" });
+    }
+  };
+
+  static editProfile = async (req, res) => {
+    const { name, occupation } = req.body;
+    console.log(req.file);
+    const id = req.user._id;
+
+    const user = await UserModel.findOne({ _id: id });
+    if (!user)
+      res.status(400).send({ status: "failed", message: "user not found" });
+
+    if (name) {
+      try {
+        user.name = name;
+        user.occupation = occupation;
+        if (req.file) user.profileImage = `/uploads/${req.file.filename}`;
+        await user.save();
+        res.send({
+          status: "success",
+          data: user,
+          message: "edited successfully",
+        });
+      } catch (e) {
+        res.status(400).send({ status: "failed", message: e });
+      }
+    } else {
+      res
+        .status(400)
+        .send({ status: "failed", message: "all fields required" });
+    }
+  };
+
+  static changePassword = async (req, res) => {
+    const { oldPassword, newPassword, confirmNewPassword } = req.body;
+    const id = req.user._id;
+
+    const user = await UserModel.findOne({ _id: id });
+    if (!user)
+      res.status(400).send({ status: "failed", message: "user not found" });
+
+    if (oldPassword && newPassword && confirmNewPassword) {
+      const isMatch = await bcrypt.compare(oldPassword, user.password);
+      if (isMatch) {
+        if (newPassword === confirmNewPassword) {
+          try {
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(newPassword, salt);
+            user.password = hashedPassword;
+            await user.save();
+            res.send({
+              status: "success",
+              data: user,
+              message: "password changed successfully",
+            });
+          } catch (e) {
+            res.status(400).send({ status: "failed", message: e });
+          }
+        } else {
+          res
+            .status(400)
+            .send({ status: "failed", message: "password does not match" });
+        }
+      } else {
+        res
+          .status(400)
+          .send({ status: "failed", message: "old password does not match" });
+      }
+    } else {
+      res
+        .status(400)
+        .send({ status: "failed", message: "all fields required" });
     }
   };
 
@@ -106,53 +181,27 @@ class UserController {
 
   static suggestedFriends = async (req, res) => {
     const user = req.user;
-    const loginUser = await UserModel.findById(user?.id);
 
     try {
-      let data = await UserModel.aggregate([
-        {
-          $match: {
-            _id: {
-              $ne: user?._id,
-            },
-          },
-        },
-        {
-          $addFields: {
-            friends: {
-              $cond: {
-                if: {
-                  $ne: [
-                    {
-                      $type: "$friends",
-                    },
-                    "array",
-                  ],
-                },
-                then: [],
-                else: "$friends",
-              },
-            },
-          },
-        },
-      ]);
+      const data = await UserModel.find({
+        $and: [{ _id: { $ne: user?._id } }, { _id: { $nin: user?.friends } }],
+      }).lean();
 
-      data = data.filter((item) => {
-        const userIdinFriendList = item.friends.find((item) => {
-          console.log(item.friendId, user?._id);
-          return item.friendId.toString() == user?._id.toString();
-        });
-        console.log({ userIdinFriendList });
-        if (userIdinFriendList) {
-          if (userIdinFriendList?.requested) item.isRequested = true;
-          if (userIdinFriendList?.confirmed) item.isConfirmed = true;
-        }
-        return !item.isConfirmed;
+      const usersWithFlag = data.map((item) => {
+        return {
+          ...item,
+          isRequestReceived: user?.requests
+            ?.map((user) => user.toString())
+            ?.includes(item._id?.toString()), // Check if this user's ID is in the logged-in user's requests
+          isRequestSent: item?.requests
+            ?.map((user) => user.toString())
+            ?.includes(user._id?.toString()), // Check if the logged-in user ID is in this user's requests
+        };
       });
 
       res.status(200).send({
         status: "success",
-        data,
+        data: usersWithFlag,
       });
     } catch (e) {
       console.log(e);
@@ -167,47 +216,12 @@ class UserController {
     const user = req.user;
 
     try {
-      const data = await UserModel.aggregate([
-        {
-          $match: { _id: user?._id },
-        },
-        {
-          $unwind: "$friends",
-        },
-        {
-          $lookup: {
-            from: "users",
-            as: "friendDetail",
-            foreignField: "_id",
-            localField: "friends.friendId",
-          },
-        },
-        {
-          $unwind: "$friendDetail",
-        },
-        {
-          $group: {
-            _id: "$_id",
-            friend: {
-              $push: {
-                friendId: "$friends.friendId",
-                isRequested: "$friends.requested",
-                isConfirmed: "$friends.confirmed",
-                email: "$friendDetail.email",
-                name: "$friendDetail.name",
-                occupation: "$friendDetail.occupation",
-              },
-            },
-          },
-        },
-        {
-          $unwind: "$friend",
-        },
-      ]);
-
+      const friends = await UserModel.find({ _id: user?.friends });
+      const requests = await UserModel.find({ _id: user?.requests });
       res.status(200).send({
         status: "success",
-        data,
+        friends,
+        requests,
       });
     } catch (e) {
       console.log(e);
@@ -221,28 +235,25 @@ class UserController {
   static requestFriend = async (req, res) => {
     const user = req.user;
     const { id } = req.params;
-    const requestedUser = await UserModel.findById(user?._id);
-    if (!requestedUser)
+    const sender = await UserModel.findById(user?._id);
+    const receiver = await UserModel.findById(id);
+    if (!receiver)
       res.status(400).send({
         status: "failed",
         message: "unable to find requested user",
       });
+    if (receiver.requests.includes(sender._id)) {
+      res.status(400).send({
+        status: "failed",
+        message: "request already sent",
+      });
+    }
     try {
-      const data = await UserModel.updateOne(
-        {
-          _id: new mongoose.Types.ObjectId(id),
-        },
-        {
-          $push: {
-            friends: {
-              friendId: user?._id,
-            },
-          },
-        }
-      );
+      receiver.requests.push(sender._id);
+      await receiver.save();
       res.status(200).send({
         status: "success",
-        data,
+        data: receiver,
       });
     } catch {
       res.status(400).send({
@@ -254,42 +265,30 @@ class UserController {
   static requestFriendRollback = async (req, res) => {
     const user = req.user;
     const { id } = req.params;
-    const requestedUser = await UserModel.findById(user?._id);
-    if (!requestedUser)
+    const sender = await UserModel.findById(user?._id);
+    const receiver = await UserModel.findById(id);
+
+    if (!receiver)
       res.status(400).send({
         status: "failed",
-        message: "unable to find requested user",
+        message: "unable to find specific user",
       });
+    if (!receiver.requests.includes(sender._id)) {
+      res.status(400).send({
+        status: "failed",
+        message: "request not sent",
+      });
+    }
     try {
-      const data = await UserModel.updateOne(
-        {
-          _id: new mongoose.Types.ObjectId(id),
-        },
-        {
-          $pull: {
-            friends: {
-              friendId: requestedUser._id,
-            },
-          },
-        }
-      );
-      const data2 = await UserModel.updateOne(
-        {
-          _id: requestedUser._id,
-        },
-        {
-          $pull: {
-            friends: {
-              friendId: new mongoose.Types.ObjectId(id),
-            },
-          },
-        }
-      );
+      const requestIndex = receiver.requests.indexOf(sender._id);
+      receiver.requests.splice(requestIndex, 1);
+      await receiver.save();
       res.status(200).send({
         status: "success",
-        data,
+        data: receiver,
       });
-    } catch {
+    } catch (e) {
+      console.log(e);
       res.status(400).send({
         status: "failed",
         message: "unable to request user",
@@ -302,39 +301,21 @@ class UserController {
     const { id } = req.params;
 
     try {
-      //update current user friend list
-      const data = await UserModel.updateOne(
-        {
-          _id: user?._id,
-          "friends.friendId": new mongoose.Types.ObjectId(id),
-        },
-        {
-          $set: {
-            "friends.$.confirmed": true,
-            "friends.$.requested": false,
-          },
-        }
-      );
-      // update sender user friend list
-      const sData = await UserModel.updateOne(
-        {
-          _id: new mongoose.Types.ObjectId(id),
-          "friends.friendId": { $ne: new mongoose.Types.ObjectId(user?._id) },
-        },
-        {
-          $push: {
-            friends: {
-              friendId: user?._id,
-              confirmed: true,
-              requested: false,
-            },
-          },
-        }
-      );
-      console.log(sData);
+      const currentUser = await UserModel.findById(user?._id);
+      const senderUser = await UserModel.findById(id);
+      currentUser.friends.push(senderUser._id);
+      senderUser.friends.push(currentUser._id);
+
+      const requestIndex = currentUser.requests.indexOf(senderUser._id);
+      if (requestIndex === -1) {
+        return res.status(400).json({ message: "No friend request found" });
+      }
+      currentUser.requests.splice(requestIndex, 1);
+      await currentUser.save();
+      await senderUser.save();
       res.status(200).send({
         status: "success",
-        data,
+        data: currentUser,
       });
     } catch (e) {
       console.log(e);

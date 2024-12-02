@@ -71,38 +71,22 @@ class PostController {
       {
         $lookup: {
           from: "users",
-          let: { userId: "$user" },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ["$_id", "$$userId"] },
-              },
-            },
-            {
-              $project: {
-                password: 0,
-              },
-            },
-          ],
+          localField: "user",
+          foreignField: "_id",
           as: "user",
         },
       },
-      // {
-      //   $lookup: {
-      //     from: "users",
-      //     localField: "user",
-      //     foreignField: "_id",
-      //     as: "user",
-      //   },
-      // },
+
       { $unwind: "$user" },
       {
         $project: {
           _id: 1,
-          user: 1,
+          "user.name": 1,
+          "user.profileImage": 1,
           content: 1,
           createdAt: 1,
           userLiked: 1,
+
           like: {
             $in: [req?.user?._id, "$userLiked"],
           },

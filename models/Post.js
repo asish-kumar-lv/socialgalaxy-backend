@@ -23,5 +23,11 @@ const postSchema = new mongoose.Schema({
   ],
 });
 
+postSchema.methods.toJSON = function () {
+  const postObject = this.toObject();
+  delete postObject.content;
+  return postObject;
+};
+
 const PostModel = mongoose.model("Posts", postSchema);
 export default PostModel;
