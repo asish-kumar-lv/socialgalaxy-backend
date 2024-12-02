@@ -5,7 +5,9 @@ const connectDb = async (DB_URL) => {
     const DB_OPTIONS = {
       dbName: "socialGalaxy",
     };
-    await mongoose.connect(DB_URL, DB_OPTIONS);
+    await mongoose.connect(
+      "mongodb+srv://asishkumar:admin%406969@cluster0.ayipn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
+    );
     console.log("conncted successfully");
   } catch (e) {
     console.log(e);
